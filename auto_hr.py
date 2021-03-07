@@ -14,6 +14,7 @@ parser.add_argument('-n', metavar='Num', type=int, help='设置本次需要公�
 parser.add_argument('-a', '--all', action='store_true', help='公招直至龙门币、招聘许可或加急许可耗尽. 该选项将会覆盖[-n Num].')
 parser.add_argument('-r', '--reset', action='store_true', help='清除历史记录.')
 parser.add_argument('-f', '--force', action='store_true', help='无视检查，强制运行至指定次数或出错. (此选项可能有助于解决识别出错导致提前终止的问题)')
+parser.add_argument('--debug', action='store_true', help='显示调试信息')
 args = parser.parse_args()
 
 if (args.reset):
@@ -95,11 +96,16 @@ for name, info in op_dict.items():
             tag_dict[tag] = {name}
     reg_dict[info['报到']] = name
 
-def force_or_exit(errmsg = '遇到错误，退出...'):
+def debug(msg):
+    if (args.debug):
+        print('[Debug] '+msg)
+    return None
+
+def force_or_exit(errmsg = '遇到错误'):
     if (args.force):
-        print('--force选项启用，尝试继续运行')
+        print(errmsg+'，--force选项启用，尝试继续运行')
         return None
-    print(errmsg)
+    print(errmsg+'，退出...')
     exit()
 
 def str_similiar(s1, s2):
@@ -219,15 +225,29 @@ def check_ticket(screenshot):
     item = re.sub(r'[^0-9]', '', item)[:-1]
     print('剩余公招许可：%s' % item)
     if (item == '0'):
-        force_or_exit('招聘许可不足，退出...')
+        force_or_exit('招聘许可不足')
     return None
 
 def read_prompt(screenshot):
     prompt = mat_tostring(ocr.ocr(255 - screenshot[int(50*factor):int(120*factor), int(775*factor):]))
     prompt, score = search_in_list(['龙门币不足', '招聘许可不足', '加急许可不足'], prompt)
     if (prompt is not None):
-        force_or_exit('%s，退出...' % prompt)
+        force_or_exit(prompt)
     return None
+
+def select_slot(screenshot):
+    text_pos = (180, 245)
+    slots = [(0,0), (475, 0), (0, 210), (475, 210)]
+    for i in range(4):
+        x, y = list(map(lambda a,b: a+b, text_pos, slots[i]))
+        t = mat_tostring(ocr.ocr_for_single_line(255 - screenshot[int(y*factor):int((y+25)*factor), int(x*factor):int((x+120)*factor)]))
+        score = str_similiar('开始招募干员', t)
+        if (score > 1000):
+            print('使用%d号槽位' % (i+1))
+            print(slots[i])
+            return slots[i]
+    force_or_exit('无可用的公招槽位')
+    return slots[0]
 
 def gongzhao(num, start=0):
     pos_dict = {
@@ -243,6 +263,7 @@ def gongzhao(num, start=0):
     def click(pos, sleep=0.5):
         command = 'adb -s %s shell input tap %d %d' % (device_name, int(pos[0] * factor), int(pos[1] * factor))
     #     print(command)
+        debug('click %s' % [int(pos[0]*factor), int(pos[1]*factor)])
         os.system(command)
         time.sleep(sleep)
     # 提前录制点击增加时长按钮的操作，保存在/sdcard/record1，可提高adb点击速度
@@ -252,6 +273,12 @@ def gongzhao(num, start=0):
     def screenshot(filename):
         os.popen('adb -s %s shell screencap -p /sdcard/01.png' % device_name).read()
         os.popen('adb -s %s pull /sdcard/01.png screenshots/%s' % (device_name, filename)).read()
+
+    print('查找可用槽位...')
+    screenshot('tmp.png')
+    offset = select_slot(load_image('tmp.png'))
+    for item in ['新建', '加急', '聘用']:
+        pos_dict[item] = list(map(lambda a,b: a+b, pos_dict[item], offset))
 
     for k in range(start, start + num):
         print('\n本次第%d抽，累计第%d抽' % (k-start+1, k))
@@ -265,7 +292,7 @@ def gongzhao(num, start=0):
         tag_list, tags_choosen, click_pos = recognize_tag(load_image('tag_%d.png' % k))
         print('\t可选tag为：\t' + ', '.join(tag_list))
         if ('高级资深干员' in tag_list):
-            force_or_exit('出现高级资深干员，请人工选择，退出...')
+            force_or_exit('出现高级资深干员，请人工选择')
         print('\t选择tag为：\t' + ', '.join(tags_choosen))
         for i in click_pos:
             click(pos_dict['tag'][i], 0.1)
