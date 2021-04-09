@@ -9,13 +9,20 @@ import json
 import argparse
 
 parser = argparse.ArgumentParser(description='明日方舟自动公招', add_help= True)
-parser.add_argument('-d', '--device', metavar='Device_Name', help='设置ADB设备名称. eg. 127.0.0.1:7555（网易MuMu模拟器）')
-parser.add_argument('-n', metavar='Num', type=int, help='设置本次需要公招的次数.')
 parser.add_argument('-a', '--all', action='store_true', help='公招直至龙门币、招聘许可或加急许可耗尽. 该选项将会覆盖[-n Num].')
+parser.add_argument('-c', '--collect', action='store_true', help='收集已完成槽位后退出.')
+parser.add_argument('-d', '--device', metavar='Device_Name', help='设置ADB设备名称. eg. 127.0.0.1:7555（网易MuMu模拟器）')
+parser.add_argument('--debug', action='store_true', help='显示调试信息.')
+parser.add_argument('-f', '--fill', action='store_true', help='填充空闲槽位后退出.')
+parser.add_argument('--force', action='store_true', help='无视检查，强制运行至指定次数或出错. (此选项可能有助于解决识别出错导致提前终止的问题)')
+parser.add_argument('-n', metavar='Num', type=int, help='设置本次需要公招的次数.')
 parser.add_argument('-r', '--reset', action='store_true', help='清除历史记录.')
-parser.add_argument('-f', '--force', action='store_true', help='无视检查，强制运行至指定次数或出错. (此选项可能有助于解决识别出错导致提前终止的问题)')
-parser.add_argument('--debug', action='store_true', help='显示调试信息')
 args = parser.parse_args()
+
+def debug(msg):
+    if (args.debug):
+        print('[Debug] %s' % msg)
+    return None
 
 if (args.reset):
     try:
@@ -46,6 +53,7 @@ adb_devices = os.popen('adb devices').read()
 if device_name not in adb_devices:
     print('Trying to connent to %s' % device_name)
     os.popen('adb connect %s' % device_name).read()
+debug(device_name)
 
 # 公招次数
 default_num = 114514
@@ -53,6 +61,8 @@ if (args.all):
     num = default_num
 elif (args.n):
     num = args.n
+elif (args.collect or args.fill):
+    num = -1
 else:
     num = input('请输入要公招的次数(直接回车则运行至材料耗尽)：')
     if (num):
@@ -74,6 +84,7 @@ os.remove('screenshots/resolution_test.png')
 factor = img.shape[1] / 960
 
 ocr = CnOcr()
+d = {}
 
 with open('干员信息.json', 'r', encoding='utf-8') as file:
     op_dict = json.loads(file.read())
@@ -95,11 +106,6 @@ for name, info in op_dict.items():
         else:
             tag_dict[tag] = {name}
     reg_dict[info['报到']] = name
-
-def debug(msg):
-    if (args.debug):
-        print('[Debug] '+msg)
-    return None
 
 def force_or_exit(errmsg = '遇到错误'):
     if (args.force):
@@ -235,17 +241,23 @@ def read_prompt(screenshot):
         force_or_exit(prompt)
     return None
 
-def select_slot(screenshot):
+def select_slot(screenshot, findall=False):
     text_pos = (180, 245)
     slots = [(0,0), (475, 0), (0, 210), (475, 210)]
+    ans = []
     for i in range(4):
         x, y = list(map(lambda a,b: a+b, text_pos, slots[i]))
         t = mat_tostring(ocr.ocr_for_single_line(255 - screenshot[int(y*factor):int((y+25)*factor), int(x*factor):int((x+120)*factor)]))
         score = str_similiar('开始招募干员', t)
         if (score > 1000):
-            print('使用%d号槽位' % (i+1))
-            print(slots[i])
-            return slots[i]
+            if (not findall):
+                print('使用%d号槽位' % (i+1))
+                debug(slots[i])
+                return slots[i]
+            ans.append(i)
+    if (findall and ans):
+        print('%s号槽位可用' % (','.join([str(i+1) for i in ans])))
+        return [slots[i] for i in ans]
     force_or_exit('无可用的公招槽位')
     return slots[0]
 
@@ -262,7 +274,7 @@ def gongzhao(num, start=0):
     }
     def click(pos, sleep=0.5):
         command = 'adb -s %s shell input tap %d %d' % (device_name, int(pos[0] * factor), int(pos[1] * factor))
-    #     print(command)
+    # print(command)
         debug('click %s' % [int(pos[0]*factor), int(pos[1]*factor)])
         os.system(command)
         time.sleep(sleep)
@@ -273,8 +285,49 @@ def gongzhao(num, start=0):
     def screenshot(filename):
         os.popen('adb -s %s shell screencap -p /sdcard/01.png' % device_name).read()
         os.popen('adb -s %s pull /sdcard/01.png screenshots/%s' % (device_name, filename)).read()
+    def new(d, k):
+        click(d['新建'], 1)
+        screenshot('tag_%d.png' % k)
+        check_ticket(load_image('tag_%d.png' % k))
+        for i in range(8):
+            click(d['增加时长'], 0)
+        tag_list, tags_choosen, click_pos = recognize_tag(load_image('tag_%d.png' % k))
+        print('\t可选tag为：\t' + ', '.join(tag_list))
+        if ('高级资深干员' in tag_list):
+            force_or_exit('出现高级资深干员，请人工选择')
+        print('\t选择tag为：\t' + ', '.join(tags_choosen))
+        for i in click_pos:
+            click(d['tag'][i], 0.1)
+        click(d['招募'], 2)
+        return tag_list, tags_choosen
+
+    if (args.collect):
+        print('Unfinished, exit...') # 未完成功能
+        return None
 
     print('查找可用槽位...')
+    if(args.fill):
+        screenshot('tmp.png')
+        slots = select_slot(load_image('tmp.png'), True)
+        k = start
+        for slot in slots:
+            pos_dict_tmp = {}
+            pos_dict_tmp.update(pos_dict)
+            for item in ['新建', '加急', '聘用']:
+                pos_dict_tmp[item] = list(map(lambda a,b: a+b, pos_dict_tmp[item], slot))
+            tag_list, tags_choosen = new(pos_dict_tmp, k)
+            d.update({
+                k: {
+                    'id': k,
+                    'tag_list': str(tag_list),
+                    'tag_chosen': str(tags_choosen),
+                    'name': 'Unknown',
+                    'rarity': 0
+                }
+            })
+            k += 1
+        return None
+
     screenshot('tmp.png')
     offset = select_slot(load_image('tmp.png'))
     for item in ['新建', '加急', '聘用']:
@@ -282,21 +335,7 @@ def gongzhao(num, start=0):
 
     for k in range(start, start + num):
         print('\n本次第%d抽，累计第%d抽' % (k-start+1, k))
-        click(pos_dict['新建'], 1)
-        screenshot('tag_%d.png' % k)
-        #检测公招券道具数量
-        check_ticket(load_image('tag_%d.png' % k))
-#         click_incre()
-        for i in range(8):
-            click(pos_dict['增加时长'], 0)
-        tag_list, tags_choosen, click_pos = recognize_tag(load_image('tag_%d.png' % k))
-        print('\t可选tag为：\t' + ', '.join(tag_list))
-        if ('高级资深干员' in tag_list):
-            force_or_exit('出现高级资深干员，请人工选择')
-        print('\t选择tag为：\t' + ', '.join(tags_choosen))
-        for i in click_pos:
-            click(pos_dict['tag'][i], 0.1)
-        click(pos_dict['招募'], 2)
+        tag_list, tags_choosen = new(pos_dict, k)
         screenshot('tmp.png')
         read_prompt(load_image('tmp.png'))
         click(pos_dict['加急'], 1.5)
@@ -308,19 +347,39 @@ def gongzhao(num, start=0):
         screenshot('result_%d.png' % k)
         name, score = recognize_name(load_image('result_%d.png' % k))
         if name in op_dict:
-            print('\t获得干员为：\t %d★%s' % (op_dict[name]['星级'], name))
+            rarity = op_dict[name]['星级']
+            print('\t获得干员为：\t %d★%s' % (rarity, name))
         else:
+            rarity = 0
+            name = 'Unreconized'
             print('\t获得干员为：\t 未识别')
-        with open('history.log', 'a+', encoding='utf-8') as file:
-            file.write('%d; %s; %s; %s; %d\n' % (k, str(tag_list), str(tags_choosen), name, op_dict[name]['星级']))
+        d.update({
+            k: {
+                'id': k,
+                'tag_list': str(tag_list),
+                'tag_chosen': str(tags_choosen),
+                'name': name,
+                'rarity': rarity
+            }
+        })
         click(pos_dict['skip'])
         click(pos_dict['skip'])
     print('\n已完成%d次公招，退出...' % num)
+    return None
 
 if __name__ == '__main__':
     try:
-        start = max([int(x) for x in re.findall(r'result_(\d+).png',
-                    '\n'.join(os.listdir('screenshots')))]) + 1
-    except:
+        with open('history.json', 'r', encoding='UTF-8') as f:
+            d = json.load(f)
+            start = len(d) + 1
+    except FileNotFoundError:
         start = 1
+    debug(start)
     gongzhao(num, start)
+    with open('history.json', 'w', encoding='UTF-8') as f:
+        f.write(json.dumps(
+            d,
+            indent=2,
+            separators=(',', ': '),
+            ensure_ascii=False
+        ))
