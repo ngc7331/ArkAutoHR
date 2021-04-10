@@ -241,14 +241,13 @@ def read_prompt(screenshot):
         force_or_exit(prompt)
     return None
 
-def select_slot(screenshot, findall=False):
-    text_pos = (180, 245)
+def select_slot(screenshot, findall=False, text_pos=(180, 245), text='开始招募干员'):
     slots = [(0,0), (475, 0), (0, 210), (475, 210)]
     ans = []
     for i in range(4):
         x, y = list(map(lambda a,b: a+b, text_pos, slots[i]))
         t = mat_tostring(ocr.ocr_for_single_line(255 - screenshot[int(y*factor):int((y+25)*factor), int(x*factor):int((x+120)*factor)]))
-        score = str_similiar('开始招募干员', t)
+        score = str_similiar(text, t)
         if (score > 1000):
             if (not findall):
                 print('使用%d号槽位' % (i+1))
@@ -259,6 +258,8 @@ def select_slot(screenshot, findall=False):
         print('%s号槽位可用' % (','.join([str(i+1) for i in ans])))
         return [slots[i] for i in ans]
     force_or_exit('无可用的公招槽位')
+    if (findall):
+        return slots
     return slots[0]
 
 def gongzhao(num, start=0):
@@ -300,32 +301,58 @@ def gongzhao(num, start=0):
             click(d['tag'][i], 0.1)
         click(d['招募'], 2)
         return tag_list, tags_choosen
-
-    if (args.collect):
-        print('Unfinished, exit...') # 未完成功能
-        return None
+    def collect(d, k):
+        click(d['聘用'], 1)
+        click(d['skip'], 3)
+        screenshot('result_%d.png' % k)
+        name, score = recognize_name(load_image('result_%d.png' % k))
+        if name in op_dict:
+            rarity = op_dict[name]['星级']
+            print('\t获得干员为：\t %d★%s' % (rarity, name))
+        else:
+            rarity = 0
+            name = 'Unreconized'
+            print('\t获得干员为：\t 未识别')
+        click(pos_dict['skip'])
+        click(pos_dict['skip'])
+        return name, rarity
 
     print('查找可用槽位...')
-    if(args.fill):
+    if (args.collect or args.fill):
         screenshot('tmp.png')
-        slots = select_slot(load_image('tmp.png'), True)
+        slots = select_slot(load_image('tmp.png'), True, (180,275), '聘用候选人') if args.collect else select_slot(load_image('tmp.png'), True)
         k = start
         for slot in slots:
+            debug(k)
+            debug(slot)
             pos_dict_tmp = {}
             pos_dict_tmp.update(pos_dict)
             for item in ['新建', '加急', '聘用']:
                 pos_dict_tmp[item] = list(map(lambda a,b: a+b, pos_dict_tmp[item], slot))
-            tag_list, tags_choosen = new(pos_dict_tmp, k)
-            d.update({
-                k: {
-                    'id': k,
-                    'tag_list': str(tag_list),
-                    'tag_chosen': str(tags_choosen),
-                    'name': 'Unknown',
-                    'rarity': 0
-                }
-            })
+            if (args.collect):
+                name, rarity = collect(pos_dict_tmp, k)
+                d.update({
+                    k: {
+                        'id': k,
+                        'tag_list': 'Unknown',
+                        'tag_chosen': 'Unknown',
+                        'name': name,
+                        'rarity': rarity
+                    }
+                })
+            else:
+                tag_list, tags_choosen = new(pos_dict_tmp, k)
+                d.update({
+                    k: {
+                        'id': k,
+                        'tag_list': str(tag_list),
+                        'tag_chosen': str(tags_choosen),
+                        'name': 'Unknown',
+                        'rarity': 0
+                    }
+                })
             k += 1
+        print('已%s%d个槽位，退出...' % ('收集' if args.collect else '填充', k-start))
         return None
 
     screenshot('tmp.png')
@@ -342,17 +369,7 @@ def gongzhao(num, start=0):
         screenshot('tmp.png')
         read_prompt(load_image('tmp.png'))
         click(pos_dict['确认'], 2)
-        click(pos_dict['聘用'], 1)
-        click(pos_dict['skip'], 3)
-        screenshot('result_%d.png' % k)
-        name, score = recognize_name(load_image('result_%d.png' % k))
-        if name in op_dict:
-            rarity = op_dict[name]['星级']
-            print('\t获得干员为：\t %d★%s' % (rarity, name))
-        else:
-            rarity = 0
-            name = 'Unreconized'
-            print('\t获得干员为：\t 未识别')
+        name, rarity = collect(pos_dict, k)
         d.update({
             k: {
                 'id': k,
@@ -362,8 +379,6 @@ def gongzhao(num, start=0):
                 'rarity': rarity
             }
         })
-        click(pos_dict['skip'])
-        click(pos_dict['skip'])
     print('\n已完成%d次公招，退出...' % num)
     return None
 
