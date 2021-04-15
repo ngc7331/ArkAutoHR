@@ -265,7 +265,7 @@ def select_slot(screenshot, findall=False, text_pos=(180, 245), text='开始招�
 def gongzhao(num, start=0):
     pos_dict = {
         '新建': (243, 217),
-        '增加时长':(340, 110),
+        '增加时长':(340, 220),
         'tag': ((338, 290), (464, 290), (587, 290), (338, 341), (464, 341)),
         '招募': (733, 436),
         '加急': (353, 287),
@@ -290,8 +290,7 @@ def gongzhao(num, start=0):
         click(d['新建'], 1)
         screenshot('tag_%d.png' % k)
         check_ticket(load_image('tag_%d.png' % k))
-        for i in range(8):
-            click(d['增加时长'], 0)
+        click(d['增加时长'], 0)
         tag_list, tags_choosen, click_pos = recognize_tag(load_image('tag_%d.png' % k))
         print('\t可选tag为：\t' + ', '.join(tag_list))
         if ('高级资深干员' in tag_list):
