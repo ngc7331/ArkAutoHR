@@ -112,7 +112,7 @@ def force_or_exit(errmsg = '遇到错误'):
         print(errmsg+'，--force选项启用，尝试继续运行')
         return None
     print(errmsg+'，退出...')
-    exit()
+    raise RuntimeError
 
 def str_similiar(s1, s2):
     """
@@ -330,26 +330,21 @@ def gongzhao(num, start=0):
                 pos_dict_tmp[item] = list(map(lambda a,b: a+b, pos_dict_tmp[item], slot))
             if (args.collect):
                 name, rarity = collect(pos_dict_tmp, k)
-                d.update({
-                    k: {
-                        'id': k,
-                        'tag_list': 'Unknown',
-                        'tag_chosen': 'Unknown',
-                        'name': name,
-                        'rarity': rarity
-                    }
-                })
+                tag_list = ['Unknown']
+                tag_chosen = ('Unknown')
             else:
-                tag_list, tags_choosen = new(pos_dict_tmp, k)
-                d.update({
-                    k: {
-                        'id': k,
-                        'tag_list': str(tag_list),
-                        'tag_chosen': str(tags_choosen),
-                        'name': 'Unknown',
-                        'rarity': 0
-                    }
-                })
+                tag_list, tags_chosen = new(pos_dict_tmp, k)
+                name = 'Unknown'
+                rarity = 0
+            d.update({
+                k: {
+                    'id': k,
+                    'tag_list': str(tag_list),
+                    'tag_chosen': str(tag_chosen),
+                    'name': name,
+                    'rarity': rarity
+                }
+            })
             k += 1
         print('已%s%d个槽位，退出...' % ('收集' if args.collect else '填充', k-start))
         return None
@@ -361,7 +356,7 @@ def gongzhao(num, start=0):
 
     for k in range(start, start + num):
         print('\n本次第%d抽，累计第%d抽' % (k-start+1, k))
-        tag_list, tags_choosen = new(pos_dict, k)
+        tag_list, tags_chosen = new(pos_dict, k)
         screenshot('tmp.png')
         read_prompt(load_image('tmp.png'))
         click(pos_dict['加急'], 1.5)
@@ -373,7 +368,7 @@ def gongzhao(num, start=0):
             k: {
                 'id': k,
                 'tag_list': str(tag_list),
-                'tag_chosen': str(tags_choosen),
+                'tag_chosen': str(tags_chosen),
                 'name': name,
                 'rarity': rarity
             }
@@ -389,11 +384,14 @@ if __name__ == '__main__':
     except FileNotFoundError:
         start = 1
     debug(start)
-    gongzhao(num, start)
-    with open('history.json', 'w', encoding='UTF-8') as f:
-        f.write(json.dumps(
-            d,
-            indent=2,
-            separators=(',', ': '),
-            ensure_ascii=False
-        ))
+    try:
+        gongzhao(num, start)
+    finally:
+        print('写入history.json...')
+        with open('history.json', 'w', encoding='UTF-8') as f:
+            f.write(json.dumps(
+                d,
+                indent=2,
+                separators=(',', ': '),
+                ensure_ascii=False
+            ))
